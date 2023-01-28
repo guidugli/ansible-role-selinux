@@ -1,5 +1,5 @@
 ---
-- name: test if selinux_state is set correctly
+- name: Test if selinux_state is set correctly
   ansible.builtin.assert:
     that:
       - selinux_state is defined
@@ -8,7 +8,7 @@
       - selinux_state in ["disabled", "enforcing", "permissive"]
     quiet: yes
 
-- name: test if selinux_policy is set correctly
+- name: Test if selinux_policy is set correctly
   ansible.builtin.assert:
     that:
       - selinux_policy is defined
@@ -17,7 +17,7 @@
       - selinux_policy in ["default", "minimum", "mls", "targeted"]
     quiet: yes
 
-- name: test if selinux_reboot is set correctly
+- name: Test if selinux_reboot is set correctly
   ansible.builtin.assert:
     that:
       - selinux_reboot is defined
