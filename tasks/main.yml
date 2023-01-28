@@ -13,7 +13,7 @@
     update_cache: yes
 
 - name: Manage selinux
-  ansible.builtin.selinux:
+  ansible.posix.selinux:
     state: "{{ selinux_state }}"
     policy: "{{ selinux_policy }}"
   notify:
