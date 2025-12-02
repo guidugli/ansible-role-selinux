@@ -2,6 +2,7 @@
 # handlers file for selinux
 
 - name: Reboot
+  become: yes
   ansible.builtin.reboot:
   when:
     - selinux_reboot | bool

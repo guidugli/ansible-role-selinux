@@ -7,12 +7,14 @@
 #- ansible.builtin.debug: var=selinux_requirements
 
 - name: Install required packages
+  become: yes
   ansible.builtin.package:
     name: "{{ selinux_requirements }}"
     state: present
     update_cache: yes
 
 - name: Manage selinux
+  become: yes
   ansible.posix.selinux:
     state: "{{ selinux_state }}"
     policy: "{{ selinux_policy }}"
