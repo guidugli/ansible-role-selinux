@@ -1,0 +1,316 @@
+---
+- name: Verify selinux role
+  hosts: all
+  gather_facts: true
+
+  vars:
+    _selinux_verify_policy:
+      default: targeted
+      Debian: default
+
+    _selinux_verify_base_packages:
+      Debian:
+        - selinux-basics
+        - selinux-utils
+        - python3-selinux
+        - python3-semanage
+        - selinux-policy-default
+        - policycoreutils
+      RedHat:
+        - python3-libselinux
+        - python3-libsemanage
+        - python3-policycoreutils
+        - policycoreutils-python-utils
+
+    _selinux_verify_container_connections:
+      - docker
+      - container
+      - containers.podman.podman
+
+  tasks:
+    - name: Build expected SELinux verification values
+      ansible.builtin.set_fact:
+        selinux_verify_state: "{{ selinux_state | default('enforcing') }}"
+        selinux_verify_policy: >-
+          {{
+            selinux_policy
+            | default(
+                _selinux_verify_policy[ansible_facts['os_family']]
+                | default(_selinux_verify_policy['default'])
+              )
+          }}
+        selinux_verify_cis_profile: "{{ selinux_cis_profile | default('none') }}"
+        selinux_verify_is_container: >-
+          {{ ansible_connection in _selinux_verify_container_connections }}
+        selinux_verify_expected_packages: >-
+          {{
+            _selinux_verify_base_packages[ansible_facts['os_family']]
+            | default([])
+          }}
+      tags:
+        - selinux
+        - validate
+
+    - name: Add RedHat SELinux policy package to expected package list
+      ansible.builtin.set_fact:
+        selinux_verify_expected_packages: >-
+          {{
+            selinux_verify_expected_packages
+            + ['selinux-policy-' ~ selinux_verify_policy]
+          }}
+      when:
+        - ansible_facts['os_family'] == 'RedHat'
+      tags:
+        - selinux
+        - validate
+
+    - name: Gather installed package facts
+      ansible.builtin.package_facts:
+        manager: auto
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert expected SELinux packages are installed
+      ansible.builtin.assert:
+        that:
+          - item in ansible_facts['packages']
+        fail_msg: "Expected SELinux package is not installed: {{ item }}"
+        quiet: true
+      loop: "{{ selinux_verify_expected_packages }}"
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux verification values are valid
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_state in ['disabled', 'enforcing', 'permissive']
+          - selinux_verify_policy in ['default', 'minimum', 'mls', 'targeted']
+          - selinux_verify_cis_profile in ['none', 'level1', 'level2']
+        quiet: true
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux state is not disabled for CIS profiles
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_state != 'disabled'
+        fail_msg: CIS profile validation requires SELinux state to be enforcing or permissive.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux enforcing mode for CIS level2 profile
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_state == 'enforcing'
+        fail_msg: CIS level2 profile validation requires SELinux state to be enforcing.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile == 'level2'
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux policy is CIS-approved on RedHat family
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_policy in ['targeted', 'mls']
+        fail_msg: CIS profile validation requires targeted or mls policy on RedHat-family systems.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - ansible_facts['os_family'] == 'RedHat'
+      tags:
+        - selinux
+        - validate
+
+    - name: Check SELinux configuration file presence
+      ansible.builtin.stat:
+        path: /etc/selinux/config
+      register: selinux_verify_config_file
+      tags:
+        - selinux
+        - validate
+
+    - name: Read SELinux configuration file
+      ansible.builtin.slurp:
+        path: /etc/selinux/config
+      register: selinux_verify_config
+      when:
+        - selinux_verify_config_file.stat.exists
+      tags:
+        - selinux
+        - validate
+
+    - name: Save decoded SELinux configuration
+      ansible.builtin.set_fact:
+        selinux_verify_config_text: "{{ selinux_verify_config.content | b64decode }}"
+      when:
+        - selinux_verify_config_file.stat.exists
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux configuration is compliant for CIS profiles
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_config_text is search('(?im)^SELINUX=(enforcing|permissive)\\b')
+        fail_msg: CIS level1 validation requires SELINUX to be enforcing or permissive in /etc/selinux/config.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - not selinux_verify_is_container | bool
+        - selinux_verify_config_file.stat.exists
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux configuration is enforcing for CIS level2 profile
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_config_text is search('(?im)^SELINUX=enforcing\\b')
+        fail_msg: CIS level2 validation requires SELINUX=enforcing in /etc/selinux/config.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile == 'level2'
+        - not selinux_verify_is_container | bool
+        - selinux_verify_config_file.stat.exists
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux policy configuration is CIS-approved on RedHat family
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_config_text is search('(?im)^SELINUXTYPE=(targeted|mls)\\b')
+        fail_msg: CIS profile validation requires SELINUXTYPE to be targeted or mls on RedHat-family systems.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - ansible_facts['os_family'] == 'RedHat'
+        - not selinux_verify_is_container | bool
+        - selinux_verify_config_file.stat.exists
+      tags:
+        - selinux
+        - validate
+
+    - name: Check current SELinux runtime mode
+      ansible.builtin.command:
+        cmd: getenforce
+      register: selinux_verify_getenforce
+      changed_when: false
+      failed_when: false
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - not selinux_verify_is_container | bool
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert current SELinux runtime mode is not disabled for CIS profiles
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_getenforce.stdout in ['Enforcing', 'Permissive']
+        fail_msg: CIS level1 validation requires runtime SELinux mode to be Enforcing or Permissive.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - not selinux_verify_is_container | bool
+        - selinux_verify_getenforce.rc == 0
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert current SELinux runtime mode is enforcing for CIS level2 profile
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_getenforce.stdout == 'Enforcing'
+        fail_msg: CIS level2 validation requires runtime SELinux mode to be Enforcing.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile == 'level2'
+        - not selinux_verify_is_container | bool
+        - selinux_verify_getenforce.rc == 0
+      tags:
+        - selinux
+        - validate
+
+    - name: Collect RedHat bootloader SELinux kernel arguments
+      ansible.builtin.command:
+        cmd: grubby --info=ALL
+      register: selinux_verify_grubby
+      changed_when: false
+      failed_when: false
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - ansible_facts['os_family'] == 'RedHat'
+        - not selinux_verify_is_container | bool
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert SELinux is not disabled in RedHat bootloader configuration
+      ansible.builtin.assert:
+        that:
+          - selinux_verify_grubby.stdout is not search('(?m)(selinux|enforcing)=0\\b')
+        fail_msg: CIS profile validation requires bootloader arguments not to include selinux=0 or enforcing=0.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - ansible_facts['os_family'] == 'RedHat'
+        - not selinux_verify_is_container | bool
+        - selinux_verify_grubby.rc == 0
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert mcstrans and setroubleshoot are not installed on RedHat family
+      ansible.builtin.assert:
+        that:
+          - item not in ansible_facts['packages']
+        fail_msg: "CIS profile validation requires package {{ item }} not to be installed."
+        quiet: true
+      loop:
+        - mcstrans
+        - setroubleshoot
+      when:
+        - selinux_verify_cis_profile in ['level1', 'level2']
+        - ansible_facts['os_family'] == 'RedHat'
+      tags:
+        - selinux
+        - validate
+
+    - name: Collect SELinux process contexts for CIS level2 profile
+      ansible.builtin.command:
+        cmd: ps -eZ
+      register: selinux_verify_process_contexts
+      changed_when: false
+      failed_when: false
+      when:
+        - selinux_verify_cis_profile == 'level2'
+        - ansible_facts['os_family'] == 'RedHat'
+        - not selinux_verify_is_container | bool
+      tags:
+        - selinux
+        - validate
+
+    - name: Assert no unconfined SELinux services exist for CIS level2 profile
+      ansible.builtin.assert:
+        that:
+          - "'unconfined_service_t' not in selinux_verify_process_contexts.stdout"
+        fail_msg: CIS level2 validation requires no processes in the unconfined_service_t domain.
+        quiet: true
+      when:
+        - selinux_verify_cis_profile == 'level2'
+        - ansible_facts['os_family'] == 'RedHat'
+        - not selinux_verify_is_container | bool
+        - selinux_verify_process_contexts.rc == 0
+      tags:
+        - selinux
+        - validate

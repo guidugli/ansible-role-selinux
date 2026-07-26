@@ -1,0 +1,52 @@
+---
+argument_specs:
+  main:
+    short_description: Install and configure SELinux packages and policy mode.
+    description:
+      - Installs distribution-specific SELinux support packages.
+      - Configures SELinux state and policy on non-container hosts where SELinux facts are available.
+      - Optionally enables CIS-oriented validation through C(selinux_cis_profile).
+    options:
+      selinux_state:
+        type: str
+        required: false
+        default: enforcing
+        choices:
+          - disabled
+          - enforcing
+          - permissive
+        description:
+          - Desired SELinux runtime and persistent mode.
+          - CIS profiles reject C(disabled); C(level2) requires C(enforcing).
+      selinux_policy:
+        type: str
+        required: false
+        default: targeted
+        choices:
+          - default
+          - minimum
+          - mls
+          - targeted
+        description:
+          - SELinux policy name to configure.
+          - Debian-family systems normally use C(default); RedHat-family systems normally use C(targeted).
+          - CIS profiles on RedHat-family systems allow only C(targeted) or C(mls).
+      selinux_reboot:
+        type: bool
+        required: false
+        default: true
+        description:
+          - Whether the role handler may reboot the host when SELinux changes require a reboot.
+      selinux_cis_profile:
+        type: str
+        required: false
+        default: none
+        choices:
+          - none
+          - level1
+          - level2
+        description:
+          - Controls how strict CIS-oriented validation should be.
+          - C(none) keeps the role flexible and allows all module-supported SELinux states and policies.
+          - C(level1) requires SELinux to be installed, not disabled, and uses CIS-approved RedHat policies.
+          - C(level2) includes C(level1) checks and requires enforcing mode.

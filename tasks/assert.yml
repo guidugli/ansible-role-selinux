@@ -1,25 +1,86 @@
 ---
-- name: Test if selinux_state is set correctly
+- name: Validate selinux_state
   ansible.builtin.assert:
     that:
       - selinux_state is defined
       - selinux_state is string
-      - selinux_state | length >= 0
-      - selinux_state in ["disabled", "enforcing", "permissive"]
-    quiet: yes
+      - selinux_state | length > 0
+      - selinux_state in ['disabled', 'enforcing', 'permissive']
+    fail_msg: selinux_state must be one of disabled, enforcing, or permissive.
+    quiet: true
+  tags:
+    - selinux
+    - validate
 
-- name: Test if selinux_policy is set correctly
+- name: Validate selinux_policy
   ansible.builtin.assert:
     that:
       - selinux_policy is defined
       - selinux_policy is string
-      - selinux_policy | length >= 0
-      - selinux_policy in ["default", "minimum", "mls", "targeted"]
-    quiet: yes
+      - selinux_policy | length > 0
+      - selinux_policy in ['default', 'minimum', 'mls', 'targeted']
+    fail_msg: selinux_policy must be one of default, minimum, mls, or targeted.
+    quiet: true
+  tags:
+    - selinux
+    - validate
 
-- name: Test if selinux_reboot is set correctly
+- name: Validate selinux_reboot
   ansible.builtin.assert:
     that:
       - selinux_reboot is defined
-      - selinux_reboot | type_debug == "bool"
-    quiet: yes
+      - selinux_reboot | type_debug == 'bool'
+    fail_msg: selinux_reboot must be a boolean.
+    quiet: true
+  tags:
+    - selinux
+    - validate
+
+- name: Validate selinux_cis_profile
+  ansible.builtin.assert:
+    that:
+      - selinux_cis_profile is defined
+      - selinux_cis_profile is string
+      - selinux_cis_profile in ['none', 'level1', 'level2']
+    fail_msg: selinux_cis_profile must be one of none, level1, or level2.
+    quiet: true
+  tags:
+    - selinux
+    - validate
+
+- name: Validate SELinux state for CIS profile
+  ansible.builtin.assert:
+    that:
+      - selinux_state != 'disabled'
+    fail_msg: CIS profiles require selinux_state to be enforcing or permissive.
+    quiet: true
+  when:
+    - selinux_cis_profile in ['level1', 'level2']
+  tags:
+    - selinux
+    - validate
+
+- name: Validate SELinux policy for CIS profile on RedHat family
+  ansible.builtin.assert:
+    that:
+      - selinux_policy in ['targeted', 'mls']
+    fail_msg: CIS profiles on RedHat-family systems require selinux_policy to be targeted or mls.
+    quiet: true
+  when:
+    - selinux_cis_profile in ['level1', 'level2']
+    - ansible_facts['os_family'] == 'RedHat'
+  tags:
+    - selinux
+    - validate
+
+- name: Validate SELinux enforcing mode for CIS level2 profile
+  ansible.builtin.assert:
+    that:
+      - selinux_state == 'enforcing'
+    fail_msg: CIS level2 profile requires selinux_state to be enforcing.
+    quiet: true
+  when:
+    - selinux_cis_profile == 'level2'
+  tags:
+    - selinux
+    - validate

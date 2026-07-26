@@ -1,8 +1,10 @@
 ---
 # handlers file for selinux
-
 - name: Reboot
-  become: yes
   ansible.builtin.reboot:
+    reboot_timeout: 600
   when:
     - selinux_reboot | bool
+  tags:
+    - selinux
+    - service
